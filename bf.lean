@@ -1,6 +1,5 @@
 import Std.Data.HashMap
 
-
 -- sをn個に複製する
 def replicate (n: Nat) (s: String): String :=
   match n with
@@ -37,13 +36,14 @@ def moveRight (n: Nat): String :=
     "+" ++
     replicate n "<" ++
     "-" ++
-  "]"
+  "]" ++
+  replicate n ">"
 
 inductive Cmd where
   | get     : String → Cmd
   | set     : String → Cmd
   | pushNum : Nat → Cmd
-  | pushStr : String → Cmd
+  -- | pushStr : String → Cmd
   | add     : Cmd
   | sub     : Cmd
 deriving Repr
@@ -72,14 +72,20 @@ def initState : CompilerState :=
   { env := Std.HashMap.empty, nextCell := 0, code := "" }
 
 -- Helper function to append generated code.
-def appendCode (s: String) (st: CompilerState): CompilerState :=
-  { st with code := st.code ++ s ++ "\n" }
+def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
+  let nc := st.nextCell+n
+  { st with
+    code := st.code ++ s ++ "\n",
+    nextCell := if nc>0 then
+                  Int.toNat nc
+                else panic! "Error"
+  }
 
 def bfSet (n: Nat) : String :=
-  "<" ++ moveLeft n
+  "<" ++ moveLeft (n - 1)
 
 def bfGet (n: Nat) : String :=
-  moveRight n
+  moveRight n ++ ">"
 
 def bfPushNum (n: Nat): String :=
   number n ++ ">"
@@ -99,25 +105,25 @@ def bfSub : String :=
 -/
 def processCmd (st: CompilerState): Cmd → CompilerState
   | Cmd.get var =>
-      appendCode (bfGet (adrLocal var st)) st
+      appendCode (bfGet (adrLocal var st)) 1 st
   | Cmd.set var =>
-      appendCode (bfSet (adrLocal var st)) st
+      appendCode (bfSet (adrLocal var st)) (-1) st
   | Cmd.pushNum n =>
-      appendCode (bfPushNum n) st
-  | Cmd.pushStr s =>
-      appendCode (bfPushStr s) st
+      appendCode (bfPushNum n) 1 st
+  -- | Cmd.pushStr s =>
+  --     appendCode (bfPushStr s) 1 st
   | Cmd.add =>
-      appendCode bfAdd st
+      appendCode bfAdd (-1) st
   | Cmd.sub =>
-      appendCode bfSub st
+      appendCode bfSub (-1) st
 
 
 def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
   let State := letvars.foldl (fun s var =>
         let idx := s.nextCell
         let newEnv := s.env.insert var idx
-        let s' := appendCode (">") s
-        { s' with env := newEnv, nextCell := s'.nextCell + 1 }
+        let s' := appendCode (">") 1 s
+        { s' with env := newEnv }
       ) initState
   cmds.foldl processCmd State
 
@@ -130,6 +136,8 @@ def exampleProgram: CompilerState :=
     Cmd.set "a",
     Cmd.pushNum 3,
     Cmd.get "b",
+    Cmd.pushNum 8,
+    Cmd.set "b",
   ]
 
 -- #eval exampleProgram
