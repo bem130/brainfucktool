@@ -191,15 +191,16 @@ type alias Model =
 initialModel : Model
 initialModel =
     let
-        sampleCode = """
-let a, b
+        sampleCode = """// sample code
+let tmp, result
 push 1
 push 2
-set a
-get a
+set tmp
+get tmp
 add
-get a
+get tmp
 sub
+set result
 """
 
     in
@@ -236,8 +237,7 @@ parseDSL source =
         lines =
             String.lines source
                 |> List.map String.trim
-                |> List.filter (not << String.isEmpty)
-        
+                |> List.filter (\line -> not (String.isEmpty line) && not (String.startsWith "//" line))
         parseLetLine line =
             if String.startsWith "let" line then
                 String.dropLeft 3 line
@@ -255,22 +255,16 @@ parseDSL source =
                     String.toInt num
                         |> Maybe.map PushNum
                         |> Result.fromMaybe "Invalid number in push command"
-                
                 ["get", var] ->
                     Ok (Get var)
-                
                 ["set", var] ->
                     Ok (Set var)
-                
                 ["add"] ->
                     Ok Add
-                
                 ["sub"] ->
                     Ok Sub
-                
                 _ ->
                     Err ("Invalid command: " ++ line)
-        
         parseCommands commands =
             List.foldl 
                 (\cmd accResult ->
@@ -293,7 +287,6 @@ parseDSL source =
                         parseCommands rest
                             |> Result.map (\cmds -> (vars, cmds))
                     )
-        
         [] ->
             Err "Empty program"
 
