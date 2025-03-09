@@ -87,8 +87,13 @@ type Cmd
     | Set String
     | PushNum Int
     -- | PushStr String
+    | Copy
     | Add
     | Sub
+    | AddC Int
+    | SubC Int
+    | Inc
+    | Dec
 
 type alias CompilerState =
     { env : Dict String Int
@@ -132,6 +137,10 @@ bfPushStr : String -> String
 bfPushStr s =
     "push "  ++ encodeString s
 
+bfCopy : String
+bfCopy =
+    "copy " ++ "<[>+>+<<-]>>[<<+>>-]"
+
 bfAdd : String
 bfAdd =
     "add  " ++ "<[<+>-]"
@@ -140,26 +149,47 @@ bfSub : String
 bfSub =
     "sub  "  ++ "<[<->-]"
 
+bfAddC : Int -> String
+bfAddC n =
+    "add  " ++ "<" ++ replicate n "+" ++ ">"
+
+bfSubC : Int -> String
+bfSubC n =
+    "sub  " ++ "<" ++ replicate n "-" ++ ">"
+
+bfInc : String
+bfInc =
+    "inc  " ++ "<+>"
+
+bfDec : String
+bfDec =
+    "dec  "  ++ "<->"
+
 processCmd : CompilerState -> Cmd -> CompilerState
 processCmd state cmd =
     case cmd of
         Get var ->
             appendCode (bfGet (adrLocal var state)) 1 state
-
         Set var ->
             appendCode (bfSet (adrLocal var state)) (-1) state
-
+        Copy ->
+            appendCode bfCopy 1 state
         PushNum n ->
             appendCode (bfPushNum n) 1 state
-
         -- PushStr s ->
         --     appendCode (bfPushStr s) 1 state
-
         Add ->
             appendCode bfAdd (-1) state
-
         Sub ->
             appendCode bfSub (-1) state
+        AddC n ->
+            appendCode (bfAddC n) 0 state
+        SubC n ->
+            appendCode (bfSubC n) 0 state
+        Inc ->
+            appendCode bfInc 0 state
+        Dec ->
+            appendCode bfDec 0 state
 
 scope : List String -> List Cmd -> CompilerState
 scope letvars cmds =
@@ -251,18 +281,40 @@ parseDSL source =
 
         parseCmd line =
             case String.words line of
-                ["push", num] ->
-                    String.toInt num
-                        |> Maybe.map PushNum
-                        |> Result.fromMaybe "Invalid number in push command"
+                ["push", val] ->
+                    case val of
+                        "true" ->
+                            Ok (PushNum 1)
+
+                        "false" ->
+                            Ok (PushNum 0)
+
+                        _ ->
+                            String.toInt val
+                                |> Maybe.map PushNum
+                                |> Result.fromMaybe ("Invalid value for push command: " ++ val)
                 ["get", var] ->
                     Ok (Get var)
+                ["copy"] ->
+                    Ok Copy
                 ["set", var] ->
                     Ok (Set var)
                 ["add"] ->
                     Ok Add
                 ["sub"] ->
                     Ok Sub
+                ["addc", num] ->
+                    String.toInt num
+                        |> Maybe.map AddC
+                        |> Result.fromMaybe "Invalid number in addc command"
+                ["subc", num] ->
+                    String.toInt num
+                        |> Maybe.map SubC
+                        |> Result.fromMaybe "Invalid number in subc command"
+                ["inc"] ->
+                    Ok Inc
+                ["dec"] ->
+                    Ok Dec
                 _ ->
                     Err ("Invalid command: " ++ line)
         parseCommands commands =
