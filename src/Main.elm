@@ -6,7 +6,8 @@ import Char
 import Debug
 
 import Browser
-import Html exposing (Html, textarea)
+import Html exposing (Html, textarea, button, div, text)
+import Html.Events exposing (onClick)
 import Html.Attributes exposing (attribute, value, rows, cols)
 
 flip : (a -> b -> c) -> b -> a -> c
@@ -160,14 +161,44 @@ scope letvars cmds =
     in
     List.foldl (flip processCmd) stateAfterVars cmds
 
-main =
+
+type alias Model =
+    { code: String }
+
+
+initialModel : Model
+initialModel =
+    { code = exampleProgram.code }
+
+
+type Msg = Compile
+
+
+update : Msg -> Model -> Model
+update msg model =
+    case msg of
+        Compile ->
+            model
+
+
+view: Model -> Html Msg
+view model =
     textarea
         [ attribute "readonly" ""
-        , value exampleProgram.code
+        , value model.code
         , rows 30
         , cols 50
         ]
         []
+
+
+main : Program () Model Msg
+main =
+    Browser.sandbox
+        { init = initialModel
+        , view = view
+        , update = update
+        }
 
 exampleProgram : CompilerState
 exampleProgram =
