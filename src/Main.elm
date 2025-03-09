@@ -6,9 +6,9 @@ import Char
 import Debug
 
 import Browser
-import Html exposing (Html, textarea, button, div, text)
+import Html exposing (Html, textarea, button, div, text, br)
 import Html.Events exposing (onClick)
-import Html.Attributes exposing (attribute, value, rows, cols)
+import Html.Attributes exposing (attribute, value, rows, cols, style)
 
 flip : (a -> b -> c) -> b -> a -> c
 flip func b a =
@@ -30,7 +30,7 @@ textEncoder s =
 
 number : Int -> String
 number x =
-    replicate x "+"
+    replicate x "+" ++ ">"
 
 encodeString : String -> String
 encodeString s =
@@ -38,7 +38,7 @@ encodeString s =
         codes = textEncoder s
         numbers = List.map number codes
     in
-    String.join ".>" numbers ++ ".>"
+    String.join ">" numbers ++ ">"
 
 moveLeft : Int -> String
 moveLeft n =
@@ -63,6 +63,24 @@ moveRight n =
         ++ "-"
         ++ "]"
         ++ replicate n ">"
+
+copyRight : Int -> String
+copyRight n =
+    "[-]"
+        ++ replicate n "<"
+        ++ "["
+        ++ replicate n ">"
+        ++ "+>+<"
+        ++ replicate n "<"
+        ++ "-"
+        ++ "]"
+        ++ replicate (n + 1) ">"
+        ++ "["
+        ++ replicate (n + 1) "<"
+        ++ "+"
+        ++ replicate (n + 1) ">"
+        ++ "-"
+        ++ "]"
 
 type Cmd
     = Get String
@@ -100,27 +118,27 @@ appendCode s n state =
 
 bfSet : Int -> String
 bfSet n =
-    "<" ++ moveLeft (n - 1)
+    "set  " ++ "<" ++ moveLeft (n - 1)
 
 bfGet : Int -> String
 bfGet n =
-    moveRight n ++ ">"
+    "get  " ++ copyRight n
 
 bfPushNum : Int -> String
 bfPushNum n =
-    number n ++ ">"
+    "push " ++ number n
 
 bfPushStr : String -> String
 bfPushStr s =
-    encodeString s ++ ">"
+    "push "  ++ encodeString s
 
 bfAdd : String
 bfAdd =
-    "/* add top two stack values */"
+    "add  " ++ "<[<+>-]"
 
 bfSub : String
 bfSub =
-    "/* subtract top two stack values */"
+    "sub  "  ++ "<[<->-]"
 
 processCmd : CompilerState -> Cmd -> CompilerState
 processCmd state cmd =
@@ -152,7 +170,7 @@ scope letvars cmds =
                     let
                         idx = state.nextCell
                         newEnv = Dict.insert var idx state.env
-                        sPrime = appendCode ">" 1 state
+                        sPrime = appendCode "let  >" 1 state
                     in
                     { sPrime | env = newEnv }
                 )
@@ -163,33 +181,212 @@ scope letvars cmds =
 
 
 type alias Model =
-    { code: String }
+    { sourceCode : String
+    , compiledCode : String
+    , error : Maybe String
+    , parseResult : Maybe (List String, List Cmd)  -- 追加: パース結果を保存
+    }
 
 
 initialModel : Model
 initialModel =
-    { code = exampleProgram.code }
+    let
+        sampleCode = """
+let a, b
+push 1
+push 2
+set a
+get a
+add
+get a
+sub
+"""
+
+    in
+    case parseDSL sampleCode of
+        Ok result ->
+            let
+                (vars, cmds) = result
+                compiled = scope vars cmds
+            in
+            { sourceCode = sampleCode
+            , compiledCode = compiled.code
+            , error = Nothing
+            , parseResult = Just result
+            }
+        Err err ->
+            { sourceCode = sampleCode
+            , compiledCode = sampleCode
+            , error = Just err
+            , parseResult = Nothing
+            }
+    -- { sourceCode = 
+    -- , compiledCode = ""
+    -- , error = Nothing
+    -- , parseResult = Nothing
+    -- }
 
 
-type Msg = Compile
+type Msg
+    = UpdateSource String
+
+parseDSL : String -> Result String (List String, List Cmd)
+parseDSL source =
+    let
+        lines =
+            String.lines source
+                |> List.map String.trim
+                |> List.filter (not << String.isEmpty)
+        
+        parseLetLine line =
+            if String.startsWith "let" line then
+                String.dropLeft 3 line
+                    |> String.trim
+                    |> String.split ","
+                    |> List.map String.trim
+                    |> List.filter (not << String.isEmpty)
+                    |> Ok
+            else
+                Err "First line must start with 'let'"
+
+        parseCmd line =
+            case String.words line of
+                ["push", num] ->
+                    String.toInt num
+                        |> Maybe.map PushNum
+                        |> Result.fromMaybe "Invalid number in push command"
+                
+                ["get", var] ->
+                    Ok (Get var)
+                
+                ["set", var] ->
+                    Ok (Set var)
+                
+                ["add"] ->
+                    Ok Add
+                
+                ["sub"] ->
+                    Ok Sub
+                
+                _ ->
+                    Err ("Invalid command: " ++ line)
+        
+        parseCommands commands =
+            List.foldl 
+                (\cmd accResult ->
+                    accResult
+                        |> Result.andThen
+                            (\acc ->
+                                parseCmd cmd
+                                    |> Result.map (\parsedCmd -> parsedCmd :: acc)
+                            )
+                )
+                (Ok [])
+                commands
+                |> Result.map List.reverse
+    in
+    case lines of
+        firstLine :: rest ->
+            parseLetLine firstLine
+                |> Result.andThen
+                    (\vars ->
+                        parseCommands rest
+                            |> Result.map (\cmds -> (vars, cmds))
+                    )
+        
+        [] ->
+            Err "Empty program"
 
 
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        Compile ->
-            model
+        UpdateSource newSource ->
+            case parseDSL newSource of
+                Ok result ->
+                    let
+                        (vars, cmds) = result
+                        compiled = scope vars cmds
+                    in
+                    { model
+                    | sourceCode = newSource
+                    , compiledCode = compiled.code
+                    , error = Nothing
+                    , parseResult = Just result
+                    }
+                Err err ->
+                    { model
+                    | sourceCode = newSource
+                    , compiledCode = newSource
+                    , error = Just err
+                    , parseResult = Nothing
+                    }
 
 
-view: Model -> Html Msg
+view : Model -> Html Msg
 view model =
-    textarea
-        [ attribute "readonly" ""
-        , value model.code
-        , rows 30
-        , cols 50
+    div []
+        [ div []
+            [ text "DSLソース:"
+            , br [] []
+            , textarea
+                [ value model.sourceCode
+                , Html.Events.onInput UpdateSource
+                , rows 15
+                , style "width" "100%"
+                ]
+                []
+            ]
+        , case model.error of
+            Just err ->
+                div [ Html.Attributes.style "color" "red" ]
+                    [ text ("エラー: " ++ err) ]
+            Nothing ->
+                text ""
+        -- , case model.parseResult of
+        --     Just (vars, cmds) ->
+        --         div [ Html.Attributes.style "margin" "10px"
+        --             , Html.Attributes.style "padding" "10px"
+        --             , Html.Attributes.style "border" "1px solid #ccc"
+        --             ]
+        --             [ div []
+        --                 [ text "変数定義:"
+        --                 , div [ Html.Attributes.style "margin-left" "20px" ]
+        --                     [ text (String.join ".." vars) ]
+        --                 ]
+        --             , div [ Html.Attributes.style "margin-top" "10px" ]
+        --                 [ text "コマンド列:"
+        --                 , div [ Html.Attributes.style "margin-left" "20px" ]
+        --                     (List.map
+        --                         (\cmd ->
+        --                             div []
+        --                                 [ text (case cmd of
+        --                                     Get var -> "Get " ++ var
+        --                                     Set var -> "Set " ++ var
+        --                                     PushNum n -> "Push " ++ String.fromInt n
+        --                                     Add -> "Add"
+        --                                     Sub -> "Sub"
+        --                                 )
+        --                                 ]
+        --                         )
+        --                         cmds
+        --                     )
+        --                 ]
+        --             ]
+        --     Nothing ->
+        --         text ""
+        , div []
+            [ text "生成されたBrainfuckコード:"
+            , br [] []
+            , textarea
+                [ value model.compiledCode
+                , attribute "readonly" ""
+                , rows 15
+                , style "width" "100%"
+                ]
+                []
+            ]
         ]
-        []
 
 
 main : Program () Model Msg
