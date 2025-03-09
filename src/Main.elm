@@ -231,6 +231,21 @@ add
 get tmp
 sub
 set result
+
+
+// 今書けるコマンド
+// push nat
+// push true
+// push false
+// get var
+// set var
+// copy var
+// add
+// sub
+// addc nat
+// subc nat
+// inc
+// dec
 """
 
     in
@@ -295,10 +310,10 @@ parseDSL source =
                                 |> Result.fromMaybe ("Invalid value for push command: " ++ val)
                 ["get", var] ->
                     Ok (Get var)
-                ["copy"] ->
-                    Ok Copy
                 ["set", var] ->
                     Ok (Set var)
+                ["copy"] ->
+                    Ok Copy
                 ["add"] ->
                     Ok Add
                 ["sub"] ->
@@ -377,7 +392,7 @@ view model =
             , textarea
                 [ value model.sourceCode
                 , Html.Events.onInput UpdateSource
-                , rows 15
+                , rows 35
                 , style "width" "100%"
                 ]
                 []
@@ -426,7 +441,7 @@ view model =
             , textarea
                 [ value model.compiledCode
                 , attribute "readonly" ""
-                , rows 15
+                , rows 20
                 , style "width" "100%"
                 ]
                 []
