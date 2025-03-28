@@ -39,15 +39,6 @@ def moveRight (n: Nat): String :=
   "]" ++
   replicate n ">"
 
-inductive Cmd where
-  | get     : String → Cmd
-  | set     : String → Cmd
-  | pushNum : Nat → Cmd
-  -- | pushStr : String → Cmd
-  | add     : Cmd
-  | sub     : Cmd
-deriving Repr
-
 /-
   Define a compiler state structure that holds:
     - env: mapping from variable names to cell indices (the "scope")
@@ -69,7 +60,7 @@ def adrLocal (var: String) (st: CompilerState): Nat :=
 
 -- Initial state with an empty environment, starting cell index 0, and no generated code.
 def initState : CompilerState :=
-  { env := Std.HashMap.empty, nextCell := 0, code := "" }
+  { env := Std.HashMap.empty, nextCell := 0, code := "<" }
 
 -- Helper function to append generated code.
 def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
@@ -81,41 +72,53 @@ def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
                 else panic! "Error"
   }
 
-def bfSet (n: Nat) : String :=
-  "<" ++ moveLeft (n - 1)
 
-def bfGet (n: Nat) : String :=
-  moveRight n ++ ">"
+inductive Cmd where
+  | clear   : Cmd
+  | copy    : Cmd
+  | get     : String → Cmd
+  | set     : String → Cmd
+  | read    : Cmd
+  | write   : Cmd
+  | push    : Nat → Cmd
+  | inc     : Cmd
+  | dec     : Cmd
+  | add     : Cmd
+  | sub     : Cmd
+  | addc    : Nat → Cmd
+  | subc    : Nat → Cmd
+  | bool    : Cmd
+deriving Repr
 
-def bfPushNum (n: Nat): String :=
-  number n ++ ">"
-
-def bfPushStr (s: String): String :=
-  string s ++ ">"
-
-def bfAdd : String :=
-  "/* add top two stack values */"
-
-def bfSub : String :=
-  "/* subtract top two stack values */"
-
-/-
-  Process a single command, updating the compiler state.
-  各コマンドを処理し、コンパイラ状態を更新
--/
 def processCmd (st: CompilerState): Cmd → CompilerState
+  | Cmd.clear =>
+      appendCode "[-]" 0 st
+  | Cmd.copy =>
+      appendCode "[>+>+<<-]>>[<<+>>-]<" 1 st
   | Cmd.get var =>
-      appendCode (bfGet (adrLocal var st)) 1 st
+      appendCode (moveRight (adrLocal var st)) 1 st
   | Cmd.set var =>
-      appendCode (bfSet (adrLocal var st)) (-1) st
-  | Cmd.pushNum n =>
-      appendCode (bfPushNum n) 1 st
-  -- | Cmd.pushStr s =>
-  --     appendCode (bfPushStr s) 1 st
+      appendCode (moveLeft (adrLocal var st)) (-1) st
+  | Cmd.read =>
+      appendCode ">," 1 st
+  | Cmd.write =>
+      appendCode ".[-]<" (-1) st
+  | Cmd.push n =>
+      appendCode (">" ++ number n) 1 st
+  | Cmd.inc =>
+      appendCode "+" 0 st
+  | Cmd.dec =>
+      appendCode "-" 0 st
   | Cmd.add =>
-      appendCode bfAdd (-1) st
+      appendCode "[<+>-]<" (-1) st
   | Cmd.sub =>
-      appendCode bfSub (-1) st
+      appendCode "[<->-]<" (-1) st
+  | Cmd.addc n =>
+      appendCode (replicate n "+") 0 st
+  | Cmd.subc n =>
+      appendCode (replicate n "-") 0 st
+  | Cmd.bool =>
+      appendCode "[[-]>+<]>[<+>-]<" 0 st
 
 
 def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
@@ -130,15 +133,22 @@ def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
 
 def exampleProgram: CompilerState :=
   scope ["a","b"] [
-    Cmd.pushNum 1,
-    Cmd.set "b",
-    Cmd.pushNum 2,
-    Cmd.set "a",
-    Cmd.pushNum 3,
-    Cmd.get "b",
-    Cmd.pushNum 8,
-    Cmd.set "b",
+    -- Cmd.push 55,
+    -- Cmd.write,
+    -- Cmd.push 10,
+    -- Cmd.push 10,
+    -- Cmd.add,
+    -- Cmd.write,
+    Cmd.push 1,
+    Cmd.push 2,
+    Cmd.copy,
   ]
 
+-- 文字コード確認
+#eval textEncoder "ABCDE"
+#eval textEncoder "abcde"
+
+#eval moveLeft 1
+
 -- #eval exampleProgram
-#eval IO.println exampleProgram.code
+#eval IO.println ( "```bf\n" ++ exampleProgram.code ++ "```")
