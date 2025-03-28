@@ -67,7 +67,7 @@ def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
   let nc := st.nextCell+n
   { st with
     code := st.code ++ s ++ "\n",
-    nextCell := if nc>0 then
+    nextCell := if nc>=0 then
                   Int.toNat nc
                 else panic! "Error"
   }
