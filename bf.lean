@@ -60,7 +60,7 @@ def adrLocal (var: String) (st: CompilerState): Nat :=
 
 -- Initial state with an empty environment, starting cell index 0, and no generated code.
 def initState : CompilerState :=
-  { env := Std.HashMap.empty, nextCell := 0, code := "<" }
+  { env := Std.HashMap.empty, nextCell := 0, code := "" }
 
 -- Helper function to append generated code.
 def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
@@ -85,6 +85,7 @@ inductive Cmd where
   | dec     : Cmd
   | add     : Cmd
   | sub     : Cmd
+  | mul     : Cmd
   | addc    : Nat → Cmd
   | subc    : Nat → Cmd
   | bool    : Cmd
@@ -92,63 +93,64 @@ deriving Repr
 
 def processCmd (st: CompilerState): Cmd → CompilerState
   | Cmd.clear =>
-      appendCode "[-]" 0 st
+      appendCode ("/* clear */   "++"[-]") 0 st
   | Cmd.copy =>
-      appendCode "[>+>+<<-]>>[<<+>>-]<" 1 st
+      appendCode ("/* copy */   "++"[>+>+<<-]>>[<<+>>-]<") 1 st
   | Cmd.get var =>
-      appendCode (moveRight (adrLocal var st)) 1 st
+      appendCode ("/* get "++var++" */   "++(moveRight (adrLocal var st))) 1 st
   | Cmd.set var =>
-      appendCode (moveLeft (adrLocal var st)) (-1) st
+      appendCode ("/* set "++var++" */   "++(moveLeft (adrLocal var st))) (-1) st
   | Cmd.read =>
-      appendCode ">," 1 st
+      appendCode ("/* read */   "++">,") 1 st
   | Cmd.write =>
-      appendCode ".[-]<" (-1) st
+      appendCode ("/* write */   "++".[-]<") (-1) st
   | Cmd.push n =>
-      appendCode (">" ++ number n) 1 st
+      appendCode ("/* push "++(toString n)++" */   "++(">" ++ number n)) 1 st
   | Cmd.inc =>
-      appendCode "+" 0 st
+      appendCode ("/* inc */   "++"+") 0 st
   | Cmd.dec =>
-      appendCode "-" 0 st
+      appendCode ("/* dec */   "++"-") 0 st
   | Cmd.add =>
-      appendCode "[<+>-]<" (-1) st
+      appendCode ("/* add */   "++"[<+>-]<") (-1) st
   | Cmd.sub =>
-      appendCode "[<->-]<" (-1) st
+      appendCode ("/* sub */   "++"[<->-]<") (-1) st
+  | Cmd.mul =>
+      appendCode ("/* mul */   "++"<[>>+<<-]>[>[<<+>>>+<-]>[<+>-]<<-]>[-]<<") (-1) st
   | Cmd.addc n =>
-      appendCode (replicate n "+") 0 st
+      appendCode ("/* addc "++(toString n)++" */   "++(replicate n "+")) 0 st
   | Cmd.subc n =>
-      appendCode (replicate n "-") 0 st
+      appendCode ("/* subc "++(toString n)++" */   "++(replicate n "-")) 0 st
   | Cmd.bool =>
-      appendCode "[[-]>+<]>[<+>-]<" 0 st
+      appendCode ("/* bool */   "++"[[-]>+<]>[<+>-]<") 0 st
 
 
 def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
   let State := letvars.foldl (fun s var =>
         let idx := s.nextCell
         let newEnv := s.env.insert var idx
-        let s' := appendCode (">") 1 s
+        let s' := appendCode ("/* let "++var++" */   "++">") 1 s
         { s' with env := newEnv }
       ) initState
   cmds.foldl processCmd State
 
 
 def exampleProgram: CompilerState :=
-  scope ["a","b"] [
-    -- Cmd.push 55,
-    -- Cmd.write,
-    -- Cmd.push 10,
-    -- Cmd.push 10,
-    -- Cmd.add,
-    -- Cmd.write,
-    Cmd.push 1,
+  scope [] [
+    Cmd.push 5,
     Cmd.push 2,
-    Cmd.copy,
+    Cmd.add,
+    Cmd.push 1,
+    Cmd.sub,
+    Cmd.push 10,
+    Cmd.mul,
+    Cmd.write,
   ]
 
 -- 文字コード確認
 #eval textEncoder "ABCDE"
 #eval textEncoder "abcde"
 
-#eval moveLeft 1
+#eval moveRight 1
 
 -- #eval exampleProgram
 #eval IO.println ( "```bf\n" ++ exampleProgram.code ++ "```")
