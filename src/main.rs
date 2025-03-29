@@ -40,11 +40,14 @@
     Additional modifications by Bem130 (2025)
     - Highlighted Output
     - Memory Dump refactored into a function showing both i and ptr
+    - Block comments (/* */) are output at the corresponding location when -m is used.
 */
 
 use clap::Parser;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::iter::Peekable;
+use std::str::Chars;
 
 /// Brainfuck Interpreter in Rust
 #[derive(Parser, Debug)]
@@ -74,6 +77,10 @@ struct Opt {
     #[arg(short = 'd', long = "dump", default_value = "0")]
     dump: usize,
 
+    /// Output block comments (/* */) at corresponding locations
+    #[arg(short = 'm', action)]
+    comments: bool,
+
     /// Input file containing Brainfuck source code
     filename: String,
 }
@@ -89,6 +96,8 @@ struct Progr {
     step: i32,
     // The index of the matching bracket for loops.
     matching: Option<usize>,
+    // For comment commands: the content of the block comment.
+    comment: Option<String>,
 }
 
 impl Progr {
@@ -98,20 +107,42 @@ impl Progr {
             plus: 0,
             step: 0,
             matching: None,
+            comment: None,
         }
     }
 }
 
 /// Reads the Brainfuck program from a string and aggregates consecutive commands.
-/// Now includes the '#' command for triggering a memory dump when dump > 0.
-fn read_program(contents: &str, dump: usize) -> Vec<Progr> {
+/// Now includes block comments (/* */) if show_comments is enabled.
+fn read_program(contents: &str, dump: usize, show_comments: bool) -> Vec<Progr> {
     // Include '#' as a valid command only if dump > 0.
     let valid_chars = if dump > 0 { "+-<>.,[]#" } else { "+-<>.,[]" };
     let mut program: Vec<Progr> = Vec::new();
     let mut last_char: Option<char> = None;
+    let mut iter: Peekable<Chars> = contents.chars().peekable();
 
-    // Iterate over each character from the source file.
-    for c in contents.chars() {
+    while let Some(c) = iter.next() {
+        // If block comment output is enabled and we encounter "/*", capture the comment.
+        if show_comments && c == '/' && iter.peek() == Some(&'*') {
+            iter.next(); // consume '*'
+            let mut comment_content = String::new();
+            while let Some(nc) = iter.next() {
+                if nc == '*' && iter.peek() == Some(&'/') {
+                    iter.next(); // consume '/'
+                    break;
+                } else {
+                    comment_content.push(nc);
+                }
+            }
+            let mut cmd = Progr::new();
+            cmd.op = Some('C'); // 'C' denotes a comment command.
+            cmd.comment = Some(comment_content);
+            program.push(cmd);
+            last_char = None; // Reset aggregation.
+            continue;
+        }
+
+        // Process only valid Brainfuck characters.
         if valid_chars.contains(c) {
             let mut new_cmd = false;
             // Always start a new command if the character is '#' (memory dump command)
@@ -140,7 +171,6 @@ fn read_program(contents: &str, dump: usize) -> Vec<Progr> {
             } else {
                 new_cmd = true;
             }
-
             if new_cmd || program.is_empty() {
                 let mut cmd = Progr::new();
                 match c {
@@ -149,7 +179,7 @@ fn read_program(contents: &str, dump: usize) -> Vec<Progr> {
                     '>' => cmd.step = 1,
                     '<' => cmd.step = -1,
                     '#' => cmd.op = Some('#'),
-                    _ => cmd.op = Some(c),
+                    _   => cmd.op = Some(c),
                 }
                 program.push(cmd);
             }
@@ -199,8 +229,9 @@ fn memory_dump(tape: &Vec<u8>, current_i: usize, ptr: usize, dump_count: usize, 
     let count = std::cmp::min(dump_count, tape.len());
     println!("Program Index: {}", current_i);
     println!("Data Pointer : {}", ptr);
+    // Color the cell at the data pointer differently.
     let cell_color = |i| {
-        if i==ptr {
+        if i == ptr {
             highlight::bgcolors::orange(mode)
         } else {
             highlight::bgcolors::blue(mode)
@@ -210,12 +241,12 @@ fn memory_dump(tape: &Vec<u8>, current_i: usize, ptr: usize, dump_count: usize, 
     for i in 0..count {
         print!("{}{: ^3}{} ", highlight::bgcolors::blue(mode), i, highlight::reset(mode));
     }
-    print!("\n");
+    println!();
     print!("{: ^5} ", "dec");
     for i in 0..count {
         print!("{}{: >3}{} ", cell_color(i), tape[i], highlight::reset(mode));
     }
-    print!("\n");
+    println!();
     print!("{: ^5} ", "hex");
     for i in 0..count {
         print!("{}{: >3x}{} ", cell_color(i), tape[i], highlight::reset(mode));
@@ -224,7 +255,7 @@ fn memory_dump(tape: &Vec<u8>, current_i: usize, ptr: usize, dump_count: usize, 
 }
 
 /// Interprets the Brainfuck program. Returns the tape, final instruction index (i), and data pointer (ptr).
-fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(Vec<u8>, usize, usize), String> {
+fn interprete(program: &Vec<Progr>, opt: &Opt, mode: &highlight::HighlightMode) -> Result<(Vec<u8>, usize, usize), String> {
     // Create the Brainfuck tape with the specified number of cells.
     let mut tape = vec![0u8; opt.cells];
     let mut ptr: usize = 0;
@@ -275,6 +306,12 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(Vec<u8>, usize, usize)
                     let mode = highlight::HighlightMode::TrueColor;
                     memory_dump(&tape, i, ptr, opt.dump, &mode);
                 }
+                'C' => {
+                    // Comment command: output the comment content.
+                    if let Some(ref comment) = cmd.comment {
+                        println!("[comment] {}{}{} ", highlight::colors::green(mode), comment, highlight::reset(mode));
+                    }
+                }
                 _ => {}
             }
         }
@@ -314,8 +351,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    // Parse and aggregate the program commands.
-    let mut program = read_program(&content, opt.dump);
+    // Parse and aggregate the program commands, including block comments if enabled.
+    let mut program = read_program(&content, opt.dump, opt.comments);
 
     // Find matching brackets for loop constructs.
     if let Err(e) = find_matching_brackets(&mut program) {
@@ -324,7 +361,7 @@ fn main() {
     }
 
     // Interpret (execute) the Brainfuck program.
-    let (tape, final_i, final_ptr) = match interprete(&program, &opt) {
+    let (tape, final_i, final_ptr) = match interprete(&program, &opt, &mode) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error during interpretation: {}", e);
