@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.nvpf": "javascript",
+        "*.peg": "ini",
+        "string.h": "c"
+    }
+}
