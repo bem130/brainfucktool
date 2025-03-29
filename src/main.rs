@@ -2,7 +2,7 @@
     Brainfuck Interpreter in Rust
         Ported to Rust by Bem130 (C to Rust), 2025
 
-    This is a Rust port of an existing C-based interpreter.
+    This is a Rust port of an existing C-based interpreter with additional features.
 
     The original source code was obtained from:
     https://launchpad.net/ubuntu/+source/bf/20041219ubuntu6
@@ -36,8 +36,11 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
     ******************************************************************************
-*/
 
+    Additional modifications by Bem130 (2025)
+    - Highlighted Output
+    - Memory Dump
+*/
 
 use clap::Parser;
 use std::fs;
@@ -66,6 +69,10 @@ struct Opt {
     /// Set input mode (0-4); only mode 0 is implemented in this version
     #[arg(short = ',', default_value = "0")]
     inputmode: u8,
+
+    /// Number of cells to dump at the end (0 = no dump)
+    #[arg(short = 'd', long = "dump", default_value = "0")]
+    dump: usize,
 
     /// Input file containing Brainfuck source code
     filename: String,
@@ -183,15 +190,14 @@ fn get_input(opt: &Opt) -> io::Result<u8> {
     Ok(byte)
 }
 
-/// Interprets the Brainfuck program.
-fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(), String> {
+/// Interprets the Brainfuck program. Returns the tape for optional dumping.
+fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<Vec<u8>, String> {
     // Create the Brainfuck tape with the specified number of cells.
     let mut tape = vec![0u8; opt.cells];
     let mut ptr: usize = 0;
     let mut i = 0;
     while i < program.len() {
         let cmd = &program[i];
-        // Optionally show the command if showinput is enabled.
         if opt.showinput {
             if let Some(ch) = cmd.op {
                 eprint!("{}", ch);
@@ -204,7 +210,6 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(), String> {
         if let Some(op) = cmd.op {
             match op {
                 '[' => {
-                    // If current cell is zero, jump to the matching ']' command.
                     if tape[ptr] == 0 {
                         if let Some(m) = cmd.matching {
                             i = m;
@@ -214,7 +219,6 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(), String> {
                     }
                 }
                 ']' => {
-                    // If current cell is non-zero, jump back to the matching '[' command.
                     if tape[ptr] != 0 {
                         if let Some(m) = cmd.matching {
                             i = m;
@@ -224,12 +228,10 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(), String> {
                     }
                 }
                 '.' => {
-                    // Output the character corresponding to the current cell's value.
                     print!("{}", tape[ptr] as char);
                     io::stdout().flush().unwrap();
                 }
                 ',' => {
-                    // Read a single byte of input.
                     match get_input(opt) {
                         Ok(val) => tape[ptr] = val,
                         Err(e) => return Err(e.to_string()),
@@ -238,38 +240,35 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(), String> {
                 _ => {}
             }
         }
-        // Perform the aggregated '+' or '-' operation.
         if cmd.plus != 0 {
             if opt.nowrap {
-                // Check for overflow/underflow if wraparound is disallowed.
                 let new_val = tape[ptr] as i32 + cmd.plus;
                 if new_val > 255 {
-                    return Err("Out of range! Incrementing 0xFF byte is disallowed (-w option).".to_string());
+                    return Err("Out of range! Incrementing 0xFF is disallowed (-w).".to_string());
                 } else if new_val < 0 {
-                    return Err("Out of range! Decrementing 0x00 byte is disallowed (-w option).".to_string());
+                    return Err("Out of range! Decrementing 0x00 is disallowed (-w).".to_string());
                 }
                 tape[ptr] = new_val as u8;
             } else {
-                // Wrapping arithmetic modulo 256 is the default behavior.
                 tape[ptr] = tape[ptr].wrapping_add(cmd.plus as u8);
             }
         }
-        // Perform the aggregated '>' or '<' operation.
         if cmd.step != 0 {
             let new_ptr = ptr as isize + cmd.step as isize;
             if new_ptr < 0 || (new_ptr as usize) >= opt.cells {
-                return Err("Pointer out of range! Check the number of cells (-c option).".to_string());
+                return Err("Pointer out of range! Check the '-c' option.".to_string());
             }
             ptr = new_ptr as usize;
         }
         i += 1;
     }
-    Ok(())
+    Ok(tape)
 }
 
 fn main() {
     // Parse command-line arguments.
     let opt = Opt::parse();
+    let mode = highlight::HighlightMode::TrueColor;
 
     // Read the Brainfuck source file.
     let content = fs::read_to_string(&opt.filename).unwrap_or_else(|e| {
@@ -287,8 +286,255 @@ fn main() {
     }
 
     // Interpret (execute) the Brainfuck program.
-    if let Err(e) = interprete(&program, &opt) {
-        eprintln!("Error during interpretation: {}", e);
-        std::process::exit(1);
+    let tape = match interprete(&program, &opt) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Error during interpretation: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // If a dump size > 0 is specified, print that many cells from the start.
+    if opt.dump > 0 {
+        let dump_count = std::cmp::min(opt.dump, tape.len());
+        eprintln!("\n--- Memory Dump (first {} cells) ---", dump_count);
+        print!("{: ^5} ","index");
+        for i in 0..dump_count {
+            print!("{}{: ^3}{} ", highlight::bgcolors::blue(&mode), i, highlight::reset(&mode));
+        }
+        print!("\n");
+        print!("{: ^5} ","dec");
+        for i in 0..dump_count {
+            print!("{}{: >3}{} ", highlight::bgcolors::lightblue(&mode), tape[i], highlight::reset(&mode));
+        }
+        print!("\n");
+        print!("{: ^5} ","hex");
+        for i in 0..dump_count {
+            print!("{}{: >3x}{} ", highlight::bgcolors::lightblue(&mode), tape[i], highlight::reset(&mode));
+        }
+        println!(); // Print final newline
+    }
+}
+
+
+
+
+
+
+
+
+
+/// Highlighter module for syntax highlighting.
+pub mod highlight {
+    /// Highlight mode enum.
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub enum HighlightMode {
+        None,
+        Color16,
+        Color256,
+        TrueColor,
+    }
+
+    impl HighlightMode {
+        pub fn from_str(s: &str) -> HighlightMode {
+            match s {
+                "false" => HighlightMode::None,
+                "16" => HighlightMode::Color16,
+                "256" => HighlightMode::Color256,
+                "true" => HighlightMode::TrueColor,
+                _ => HighlightMode::None,
+            }
+        }
+    }
+
+    /// Returns the reset escape sequence.
+    pub fn reset(mode: &HighlightMode) -> String {
+        match mode {
+            HighlightMode::None => "".to_string(),
+            _ => "\x1b[0m".to_string(),
+        }
+    }
+
+    /// Color functions.
+    pub mod colors {
+        use super::HighlightMode;
+        pub fn pink(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[35m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;207m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;250;105;200m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn blue(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[34m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;27m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;50;50;255m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn white(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[37m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;15m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;255;255;255m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn green(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[32m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;82m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;100;230;60m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn red(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[31m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;196m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;250;80;50m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn yellow(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[33m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;11m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;240;230;0m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn orange(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[33m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;208m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;255;165;0m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+        pub fn lightblue(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16 => "\x1b[94m".to_string(),
+                HighlightMode::Color256 => "\x1b[38;5;153m".to_string(),
+                HighlightMode::TrueColor => "\x1b[38;2;53;255;255m".to_string(),
+                HighlightMode::None => "".to_string(),
+            }
+        }
+    }
+    pub mod bgcolors {
+        use super::HighlightMode;
+        pub fn pink(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[45m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;88m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;60;20;60m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn blue(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[44m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;18m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;20;30;60m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn white(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[47m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;237m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;40;40;40m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn yellow(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[43m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;100m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;60;60;20m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn orange(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[43m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;95m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;70;40;10m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn lightblue(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[104m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;20m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;20;40;120m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn green(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[42m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;64m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;40;80;24m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+        pub fn red(mode: &HighlightMode) -> String {
+            match mode {
+                HighlightMode::Color16   => "\x1b[41m".to_string(),
+                HighlightMode::Color256  => "\x1b[48;5;90m".to_string(),
+                HighlightMode::TrueColor => "\x1b[48;2;60;20;20m".to_string(),
+                HighlightMode::None      => "".to_string(),
+            }
+        }
+    }
+
+    /// Returns an escape code for opening parentheses color based on depth.
+    pub fn paren_color(depth: usize, mode: &HighlightMode) -> String {
+        if *mode == HighlightMode::None {
+            return "".to_string();
+        }
+        match mode {
+            HighlightMode::Color16 => {
+                let palette = [91, 92, 93, 94, 95, 96];
+                let code = palette[depth % palette.len()];
+                format!("\x1b[{}m", code)
+            },
+            HighlightMode::Color256 => {
+                let palette = [196, 202, 208, 214, 220, 226];
+                let code = palette[depth % palette.len()];
+                format!("\x1b[38;5;{}m", code)
+            },
+            HighlightMode::TrueColor => {
+                let palette = [
+                    (164, 219, 211),
+                    (217, 201, 145),
+                    (145, 189, 217),
+                    (217, 187, 145),
+                    (132, 137, 140),
+                ];
+                let (r, g, b) = palette[depth % palette.len()];
+                format!("\x1b[38;2;{};{};{}m", r, g, b)
+            },
+            HighlightMode::None => "".to_string(),
+        }
+    }
+
+    /// Colorize a plain string with the given color (by name) for foreground.
+    pub fn colorize_plain(text: &str, color: &str, mode: &HighlightMode) -> String {
+        if *mode == HighlightMode::None {
+            return text.to_string();
+        }
+        let color_code = match color {
+            "pink" => colors::pink(mode),
+            "blue" => colors::blue(mode),
+            "white" => colors::white(mode),
+            "green" => colors::green(mode),
+            "red" => colors::red(mode),
+            _ => "".to_string(),
+        };
+        format!("{}{}{}", color_code, text, reset(mode))
     }
 }
