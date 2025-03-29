@@ -91,6 +91,8 @@ fn adr_local(state: &CompilerState, var: &str) -> usize {
     }
 }
 
+const COMMENT_WIDTH: usize = 2;
+
 // Updated append_code function with indentation.
 fn append_code(
     mut state: CompilerState,
@@ -105,13 +107,9 @@ fn append_code(
         panic!("Error");
     }
     let indent_str = make_indent(indent, indentsize);
-    // Format the command header with indentation.
-    let header = format!("/* {: <8} */  {}", cmd, indent_str);
-    state.code.push_str(&header);
-    state.code.push_str(s);
-    state.code.push_str(" #");
-    state.code.push_str(&new_next.to_string());
-    state.code.push('\n');
+    let tail = make_indent(COMMENT_WIDTH-indent, indentsize);
+    let code = format!("/* {}{: <12}{} */ {} #{}\n", indent_str, cmd,tail,s,&new_next.to_string());
+    state.code.push_str(&code);
     state.next_cell = new_next as usize;
     state
 }
@@ -207,7 +205,11 @@ fn process_cmd(
             let code_str = format!(
                 "\n{}{}",
                 inner_state.code,
-                format!("/* {: <8} */ ", "end stat")
+                format!("/* {}{: <12}{} */",
+                    make_indent(indent, indentsize),
+                    "end stat",
+                    make_indent(COMMENT_WIDTH-indent, indentsize),
+                ),
             );
             append_code(state, "stat", &code_str, 0, indent, indentsize)
         }
@@ -238,12 +240,20 @@ fn process_cmd(
             }
             let indent_str = make_indent(indent, indentsize);
             let code_str = format!(
-                "\n{}{}{}  [\n{}{}{}   [-]]<",
+                "\n{}{}{} [\n{}{}{}   [-]]<",
                 cond_state.code,
-                format!("/* {: <8} */", "then"),
+                format!("/* {}{: <12}{} */",
+                    make_indent(indent, indentsize),
+                    "then",
+                    make_indent(COMMENT_WIDTH-indent, indentsize),
+                ),
                 indent_str,
                 then_state.code,
-                format!("/* {: <8} */", "end if"),
+                format!("/* {}{: <12}{} */",
+                    make_indent(indent, indentsize),
+                    "end if",
+                    make_indent(COMMENT_WIDTH-indent, indentsize),
+                ),
                 indent_str
             );
             append_code(state, "if", &code_str, 0, indent, indentsize)
@@ -260,12 +270,13 @@ fn scope(letvars: &[&str], cmds: &[Cmd], indent: usize, indentsize: usize) -> Co
         let code_str = format!(">");
         state = append_code(state, &format!("let {}", var), &code_str, 1, indent, indentsize);
     }
+    state.code += "\n";
     process_cmd_list(state, cmds, indent, indentsize)
 }
 
 // Example program that uses the defined commands.
 fn example_program() -> String {
-    let state = scope(
+    scope(
         &["a", "b"],
         &[
             Cmd::IfThen {
@@ -293,10 +304,9 @@ fn example_program() -> String {
                 Cmd::Write,
             ]),
         ],
-        0,  // initial indent level
-        4   // indentsize (number of spaces per indent, e.g., 4)
-    );
-    state.code
+        0,
+        4,
+    ).code
 }
 
 fn main() {
