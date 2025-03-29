@@ -86,12 +86,15 @@ fn adr_local(state: &CompilerState, var: &str) -> usize {
     }
 }
 
-// Appends generated code to the compiler state and updates the stack pointer.
-fn append_code(mut state: CompilerState, s: &str, delta: isize) -> CompilerState {
+// Updated append_code function with separate command header and code string.
+fn append_code(mut state: CompilerState, cmd: &str, s: &str, delta: isize) -> CompilerState {
     let new_next = state.next_cell as isize + delta;
     if new_next < 0 {
         panic!("Error");
     }
+    // Format the command header with left padding.
+    let header = format!("/* {: <8} */  ", cmd);
+    state.code.push_str(&header);
     state.code.push_str(s);
     state.code.push_str(" #");
     state.code.push_str(&new_next.to_string());
@@ -133,42 +136,38 @@ fn process_cmd_list(mut state: CompilerState, cmds: &[Cmd]) -> CompilerState {
 // Processes a single command and updates the compiler state accordingly.
 fn process_cmd(state: CompilerState, cmd: &Cmd) -> CompilerState {
     match cmd {
-        Cmd::Clear => append_code(state, "/* clear */   [-]", 0),
-        Cmd::Copy => append_code(state, "/* copy */   [>+>+<<-]>>[<<+>>-]<", 1),
+        Cmd::Clear => append_code(state, "clear", "[-]", 0),
+        Cmd::Copy => append_code(state, "copy", "[>+>+<<-]>>[<<+>>-]<", 1),
         Cmd::Get(var) => {
             let adr = adr_local(&state, var);
-            let code_str = format!("/* get {} */   >{}", var, copy_right(1 + adr));
-            append_code(state, &code_str, 1)
+            let code_str = format!(">{}", copy_right(1 + adr));
+            append_code(state, &format!("get {}", var), &code_str, 1)
         }
         Cmd::Set(var) => {
             let adr = adr_local(&state, var);
-            let code_str = format!("/* set {} */   {}<", var, move_left(adr));
-            append_code(state, &code_str, -1)
+            let code_str = format!("{}<", move_left(adr));
+            append_code(state, &format!("set {}", var), &code_str, -1)
         }
-        Cmd::Read => append_code(state, "/* read */   >,", 1),
-        Cmd::Write => append_code(state, "/* write */   .[-]<", -1),
+        Cmd::Read => append_code(state, "read", ">,", 1),
+        Cmd::Write => append_code(state, "write", ".[-]<", -1),
         Cmd::Push(n) => {
-            let code_str = format!("/* push {} */   >{}", n, number(*n));
-            append_code(state, &code_str, 1)
+            let code_str = format!(">{}", number(*n));
+            append_code(state, &format!("push {}", n), &code_str, 1)
         }
-        Cmd::Inc => append_code(state, "/* inc */   +", 0),
-        Cmd::Dec => append_code(state, "/* dec */   -", 0),
-        Cmd::Add => append_code(state, "/* add */   [<+>-]<", -1),
-        Cmd::Sub => append_code(state, "/* sub */   [<->-]<", -1),
-        Cmd::Mul => append_code(
-            state,
-            "/* mul */   <[>>+<<-]>[>[<<+>>>+<-]>[<+>-]<<-]>[-]<<",
-            -1,
-        ),
+        Cmd::Inc => append_code(state, "inc", "+", 0),
+        Cmd::Dec => append_code(state, "dec", "-", 0),
+        Cmd::Add => append_code(state, "add", "[<+>-]<", -1),
+        Cmd::Sub => append_code(state, "sub", "[<->-]<", -1),
+        Cmd::Mul => append_code(state, "mul", "<[>>+<<-]>[>[<<+>>>+<-]>[<+>-]<<-]>[-]<<", -1),
         Cmd::Addc(n) => {
-            let code_str = format!("/* addc {} */   {}", n, replicate(*n, "+"));
-            append_code(state, &code_str, 0)
+            let code_str = replicate(*n, "+");
+            append_code(state, &format!("addc {}", n), &code_str, 0)
         }
         Cmd::Subc(n) => {
-            let code_str = format!("/* subc {} */   {}", n, replicate(*n, "-"));
-            append_code(state, &code_str, 0)
+            let code_str = replicate(*n, "-");
+            append_code(state, &format!("subc {}", n), &code_str, 0)
         }
-        Cmd::Bool => append_code(state, "/* bool */   [[-]>+<]>[<+>-]<", 0),
+        Cmd::Bool => append_code(state, "bool", "[[-]>+<]>[<+>-]<", 0),
         Cmd::Stat(cmds_inner) => {
             // Create a temporary state with the same next_cell and env, but empty code.
             let temp_state = CompilerState {
@@ -180,8 +179,8 @@ fn process_cmd(state: CompilerState, cmd: &Cmd) -> CompilerState {
             if inner_state.next_cell != state.next_cell {
                 panic!("Error: Stack pointer changed in stat block");
             }
-            let code_str = format!("/* stat */\n{}/* end stat */", inner_state.code);
-            append_code(state, &code_str, 0)
+            let code_str = format!("\n{}{}", inner_state.code,format!("/* {: <8} */  ", "end stat"));
+            append_code(state, "stat", &code_str, 0)
         }
         Cmd::IfThen { cond, then_block } => {
             // Process condition block in a temporary state.
@@ -206,10 +205,13 @@ fn process_cmd(state: CompilerState, cmd: &Cmd) -> CompilerState {
                 panic!("Error: Then block must not change stack pointer");
             }
             let code_str = format!(
-                "/* if */\n{}/* then */   [\n{}/* end if */   [-]]<",
-                cond_state.code, then_state.code
+                "\n{}{}  [\n{}{}   [-]]<",
+                cond_state.code,
+                format!("/* {: <8} */", "then"),
+                then_state.code,
+                format!("/* {: <8} */", "end if"),
             );
-            append_code(state, &code_str, 0)
+            append_code(state, "if", &code_str, 0)
         }
     }
 }
@@ -220,8 +222,8 @@ fn scope(letvars: &[&str], cmds: &[Cmd]) -> CompilerState {
     for var in letvars {
         let idx = state.next_cell;
         state.env.insert(var.to_string(), idx);
-        let code_str = format!("/* let {} */   >", var);
-        state = append_code(state, &code_str, 1);
+        let code_str = format!(">");
+        state = append_code(state, &format!("let {}", var), &code_str, 1);
     }
     process_cmd_list(state, cmds)
 }
@@ -232,14 +234,14 @@ fn example_program() -> String {
         &["a", "b"],
         &[
             Cmd::IfThen {
-                cond: vec![Cmd::Push(1)], // condition block: e.g., push true
+                cond: vec![Cmd::Push(1)],
                 then_block: vec![Cmd::Stat(vec![
                     Cmd::Push(5),
                     Cmd::Set("a".to_string()),
                 ])],
             },
             Cmd::IfThen {
-                cond: vec![Cmd::Push(0)], // condition block: e.g., push false
+                cond: vec![Cmd::Push(0)],
                 then_block: vec![Cmd::Stat(vec![
                     Cmd::Push(4),
                     Cmd::Set("b".to_string()),
