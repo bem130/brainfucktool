@@ -39,7 +39,7 @@
 
     Additional modifications by Bem130 (2025)
     - Highlighted Output
-    - Memory Dump
+    - Memory Dump refactored into a function showing both i and ptr
 */
 
 use clap::Parser;
@@ -103,18 +103,21 @@ impl Progr {
 }
 
 /// Reads the Brainfuck program from a string and aggregates consecutive commands.
-fn read_program(contents: &str) -> Vec<Progr> {
-    // Explicitly annotate the type for the vector.
+/// Now includes the '#' command for triggering a memory dump when dump > 0.
+fn read_program(contents: &str, dump: usize) -> Vec<Progr> {
+    // Include '#' as a valid command only if dump > 0.
+    let valid_chars = if dump > 0 { "+-<>.,[]#" } else { "+-<>.,[]" };
     let mut program: Vec<Progr> = Vec::new();
-    let valid_chars = "+-<>.,[]";
     let mut last_char: Option<char> = None;
 
     // Iterate over each character from the source file.
     for c in contents.chars() {
         if valid_chars.contains(c) {
-            // Determine whether to aggregate with the previous command.
             let mut new_cmd = false;
-            if let Some(last) = last_char {
+            // Always start a new command if the character is '#' (memory dump command)
+            if c == '#' {
+                new_cmd = true;
+            } else if let Some(last) = last_char {
                 if (last == '+' || last == '-') && (c == '+' || c == '-') {
                     if let Some(last_cmd) = program.last_mut() {
                         if last_cmd.op.is_none() {
@@ -145,6 +148,7 @@ fn read_program(contents: &str) -> Vec<Progr> {
                     '-' => cmd.plus = -1,
                     '>' => cmd.step = 1,
                     '<' => cmd.step = -1,
+                    '#' => cmd.op = Some('#'),
                     _ => cmd.op = Some(c),
                 }
                 program.push(cmd);
@@ -190,8 +194,37 @@ fn get_input(opt: &Opt) -> io::Result<u8> {
     Ok(byte)
 }
 
-/// Interprets the Brainfuck program. Returns the tape for optional dumping.
-fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<Vec<u8>, String> {
+/// Prints a memory dump of the tape, including the current program index and data pointer.
+fn memory_dump(tape: &Vec<u8>, current_i: usize, ptr: usize, dump_count: usize, mode: &highlight::HighlightMode) {
+    let count = std::cmp::min(dump_count, tape.len());
+    println!("Program Index: {}", current_i);
+    println!("Data Pointer : {}", ptr);
+    let cell_color = |i| {
+        if i==ptr {
+            highlight::bgcolors::orange(mode)
+        } else {
+            highlight::bgcolors::blue(mode)
+        }
+    };
+    print!("{: ^5} ", "index");
+    for i in 0..count {
+        print!("{}{: ^3}{} ", highlight::bgcolors::blue(mode), i, highlight::reset(mode));
+    }
+    print!("\n");
+    print!("{: ^5} ", "dec");
+    for i in 0..count {
+        print!("{}{: >3}{} ", cell_color(i), tape[i], highlight::reset(mode));
+    }
+    print!("\n");
+    print!("{: ^5} ", "hex");
+    for i in 0..count {
+        print!("{}{: >3x}{} ", cell_color(i), tape[i], highlight::reset(mode));
+    }
+    println!("\n");
+}
+
+/// Interprets the Brainfuck program. Returns the tape, final instruction index (i), and data pointer (ptr).
+fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<(Vec<u8>, usize, usize), String> {
     // Create the Brainfuck tape with the specified number of cells.
     let mut tape = vec![0u8; opt.cells];
     let mut ptr: usize = 0;
@@ -237,6 +270,11 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<Vec<u8>, String> {
                         Err(e) => return Err(e.to_string()),
                     }
                 }
+                '#' => {
+                    // Memory dump command: dump the tape immediately including current i and ptr.
+                    let mode = highlight::HighlightMode::TrueColor;
+                    memory_dump(&tape, i, ptr, opt.dump, &mode);
+                }
                 _ => {}
             }
         }
@@ -262,7 +300,7 @@ fn interprete(program: &Vec<Progr>, opt: &Opt) -> Result<Vec<u8>, String> {
         }
         i += 1;
     }
-    Ok(tape)
+    Ok((tape, i, ptr))
 }
 
 fn main() {
@@ -277,7 +315,7 @@ fn main() {
     });
 
     // Parse and aggregate the program commands.
-    let mut program = read_program(&content);
+    let mut program = read_program(&content, opt.dump);
 
     // Find matching brackets for loop constructs.
     if let Err(e) = find_matching_brackets(&mut program) {
@@ -286,8 +324,8 @@ fn main() {
     }
 
     // Interpret (execute) the Brainfuck program.
-    let tape = match interprete(&program, &opt) {
-        Ok(t) => t,
+    let (tape, final_i, final_ptr) = match interprete(&program, &opt) {
+        Ok(res) => res,
         Err(e) => {
             eprintln!("Error during interpretation: {}", e);
             std::process::exit(1);
@@ -296,33 +334,10 @@ fn main() {
 
     // If a dump size > 0 is specified, print that many cells from the start.
     if opt.dump > 0 {
-        let dump_count = std::cmp::min(opt.dump, tape.len());
-        eprintln!("\n--- Memory Dump (first {} cells) ---", dump_count);
-        print!("{: ^5} ","index");
-        for i in 0..dump_count {
-            print!("{}{: ^3}{} ", highlight::bgcolors::blue(&mode), i, highlight::reset(&mode));
-        }
-        print!("\n");
-        print!("{: ^5} ","dec");
-        for i in 0..dump_count {
-            print!("{}{: >3}{} ", highlight::bgcolors::lightblue(&mode), tape[i], highlight::reset(&mode));
-        }
-        print!("\n");
-        print!("{: ^5} ","hex");
-        for i in 0..dump_count {
-            print!("{}{: >3x}{} ", highlight::bgcolors::lightblue(&mode), tape[i], highlight::reset(&mode));
-        }
-        println!(); // Print final newline
+        println!("[End state]");
+        memory_dump(&tape, final_i, final_ptr, opt.dump, &mode);
     }
 }
-
-
-
-
-
-
-
-
 
 /// Highlighter module for syntax highlighting.
 pub mod highlight {

@@ -66,12 +66,11 @@ def initState : CompilerState :=
 def appendCode (s: String) (n: Int) (st: CompilerState): CompilerState :=
   let nc := st.nextCell+n
   { st with
-    code := st.code ++ s ++ "\n",
+    code := st.code ++ s ++ " #"++(toString nc)++"\n",
     nextCell := if nc>=0 then
                   Int.toNat nc
                 else panic! "Error"
   }
-
 
 inductive Cmd where
   | clear   : Cmd
@@ -89,7 +88,15 @@ inductive Cmd where
   | addc    : Nat → Cmd
   | subc    : Nat → Cmd
   | bool    : Cmd
+  | ifThen  : List Cmd → Cmd
 deriving Repr
+
+-- 相互再帰定義：processCmdList と processCmd を mutual ブロックで定義
+mutual
+  def processCmdList (st : CompilerState) (cmds : List Cmd) : CompilerState :=
+    match cmds with
+    | []      => st
+    | c :: cs => processCmdList (processCmd st c) cs
 
 def processCmd (st: CompilerState): Cmd → CompilerState
   | Cmd.clear =>
@@ -122,7 +129,10 @@ def processCmd (st: CompilerState): Cmd → CompilerState
       appendCode ("/* subc "++(toString n)++" */   "++(replicate n "-")) 0 st
   | Cmd.bool =>
       appendCode ("/* bool */   "++"[[-]>+<]>[<+>-]<") 0 st
-
+  | Cmd.ifThen cmds =>
+      let innerState := processCmdList { st with nextCell := st.nextCell+2 } cmds
+      appendCode ("/* if then */   "++"[\n"++innerState.code++"/* end if */   "++"[-]]") 0 st
+end
 
 def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
   let State := letvars.foldl (fun s var =>
@@ -135,15 +145,22 @@ def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
 
 
 def exampleProgram: CompilerState :=
-  scope [] [
+  scope ["a"] [
     Cmd.push 5,
     Cmd.push 2,
     Cmd.add,
-    Cmd.push 1,
+    Cmd.push 3,
     Cmd.sub,
     Cmd.push 10,
     Cmd.mul,
     Cmd.write,
+    Cmd.push 10,
+    Cmd.push 5,
+    Cmd.push 1, -- true
+    -- Cmd.ifThen [ -- if文
+    --   Cmd.push 5,
+    --   Cmd.set "a",
+    -- ],
   ]
 
 -- 文字コード確認
