@@ -9,21 +9,11 @@ LEAN4を使ってBrainFuckのプログラムを書く試み
 (lean bf.lean | Out-String) -replace '(?s).*```bf\r\n(.*?)\r\n```.*', '$1' > out.bf
 ```
 ### 実行
-#### 文字列で確認
 ```powershell
-cargo run -- out.bf
-```
-#### 数字も確認
-```powershell
-(cargo run -- out.bf | Out-String).TrimEnd("`r", "`n").ToCharArray() | ForEach-Object { "$([int]$_) $_" }
+cargo run --bin bfir -- out.bf
 ```
 
 ### 結合
-#### 文字列で確認
 ```powershell
-(lean bf.lean | Out-String) -replace '(?s).*```bf\r\n(.*?)\r\n```.*', '$1' > out.bf; cargo run -- out.bf
-```
-#### 数字も確認
-```powershell
-(lean bf.lean | Out-String) -replace '(?s).*```bf\r\n(.*?)\r\n```.*', '$1' > out.bf; (cargo run -- out.bf | Out-String).TrimEnd("`r", "`n").ToCharArray() | ForEach-Object { "$([int]$_) $_" }
+(lean bf.lean | Out-String) -replace '(?s).*```bf\r\n(.*?)\r\n```.*', '$1' > out.bf; cargo run --bin bfir -- out.bf
 ```

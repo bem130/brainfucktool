@@ -3,6 +3,14 @@ name = "brainfucktool"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "bfir"
+path = "./src/bfir/main.rs"
+
+[[bin]]
+name = "bfconstructor"
+path = "./src/bfconstructor/main.rs"
+
 [dependencies]
 clap_derive = { version = "4.5.4" }
 clap = { version = "4.5.4", features = ["derive"] }
