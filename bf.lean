@@ -182,8 +182,8 @@ def scope (letvars: List String) (cmds: List Cmd): CompilerState :=
   cmds.foldl processCmd State
 
 
-def exampleProgram: CompilerState :=
-  scope ["a","b"] [
+def exampleProgram: String :=
+  (scope ["a","b"] [
     Cmd.ifThen
       [
           -- Condition block: must increase stack pointer by 1.
@@ -217,6 +217,7 @@ def exampleProgram: CompilerState :=
       Cmd.write
     ]
   ]
+  ).code
 
 -- Testing utility functions
 #eval textEncoder "ABCDE"
@@ -224,4 +225,4 @@ def exampleProgram: CompilerState :=
 #eval moveRight 1
 
 -- Print the generated Brainfuck code
-#eval IO.println ("```bf\n" ++ exampleProgram.code ++ "```")
+#eval IO.println ("```bf\n" ++ exampleProgram ++ "```")
