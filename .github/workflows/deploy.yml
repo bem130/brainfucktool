@@ -15,20 +15,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Setup Node.js Environment
-        uses: actions/setup-node@v3
-        with:
-          node-version: '22'
+      # - name: Setup Node.js Environment
+      #   uses: actions/setup-node@v3
+      #   with:
+      #     node-version: '22'
 
-      - name: Install Elm
-        run: npm install -g elm
+      # - name: Install Elm
+      #   run: npm install -g elm
 
-      - name: Temporarily remove dist from .gitignore
-        run: sed -i '/dist/d' .gitignore
+      # - name: Temporarily remove dist from .gitignore
+      #   run: sed -i '/dist/d' .gitignore
 
-      - name: Build Elm Project
-        run: |
-          elm make src/Main.elm --output=dist/main.js
+      # - name: Build Elm Project
+      #   run: |
+      #     elm make src/Main.elm --output=dist/main.js
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
